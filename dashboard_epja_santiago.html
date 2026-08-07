@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EPJA Santiago — Dashboard de Demanda Insatisfecha</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: system-ui, -apple-system, sans-serif; font-size: 15px; line-height: 1.6; color: #1a1a1a; background: #f5f4f1; }
+  a { color: #2a78d6; }
+
+  .header { background: #1a1a1a; color: #fff; padding: 2rem 2.5rem; }
+  .header h1 { font-size: 22px; font-weight: 500; margin-bottom: 4px; }
+  .header p  { font-size: 13px; color: #aaa; }
+
+  .nav { display: flex; background: #fff; border-bottom: 1px solid #e0dfd8; padding: 0 2rem; overflow-x: auto; }
+  .nav button { padding: 12px 18px; border: none; background: none; cursor: pointer; font-size: 14px; color: #888; border-bottom: 2px solid transparent; white-space: nowrap; }
+  .nav button.active { color: #1a1a1a; border-bottom-color: #2a78d6; font-weight: 500; }
+
+  .content { display: none; padding: 2rem 2.5rem; max-width: 1100px; }
+  .content.active { display: block; }
+
+  .kpi-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 2rem; }
+  .kpi { background: #fff; border-radius: 10px; padding: 1.1rem 1.2rem; border: 0.5px solid #e0dfd8; }
+  .kpi .label { font-size: 12px; color: #888; margin-bottom: 4px; }
+  .kpi .value { font-size: 24px; font-weight: 500; color: #1a1a1a; }
+  .kpi .sub   { font-size: 12px; color: #aaa; margin-top: 2px; }
+  .kpi.accent { border-color: #2a78d6; background: #e6f1fb22; }
+  .kpi.accent .value { color: #185fa5; }
+
+  .card { background: #fff; border-radius: 10px; border: 0.5px solid #e0dfd8; padding: 1.5rem; margin-bottom: 1.5rem; }
+  .card h2 { font-size: 16px; font-weight: 500; margin-bottom: 1rem; color: #1a1a1a; }
+  .card h3 { font-size: 14px; font-weight: 500; margin: 1.2rem 0 0.5rem; color: #444; }
+
+  .chart-wrap { position: relative; height: 260px; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; padding: 8px 10px; color: #888; font-weight: 500; border-bottom: 1px solid #e0dfd8; }
+  td { padding: 8px 10px; border-bottom: 0.5px solid #f0efe8; color: #1a1a1a; }
+  tr:hover td { background: #fafaf8; }
+  td.neg { color: #0f6e56; font-weight: 500; }
+  td.pos { color: #e34948; font-weight: 500; }
+
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 500; }
+  .badge.mun  { background: #e6f1fb; color: #185fa5; }
+  .badge.sub  { background: #e1f5ee; color: #0f6e56; }
+  .badge.pag  { background: #faeeda; color: #854f0b; }
+  .badge.ok   { background: #e1f5ee; color: #0f6e56; }
+  .badge.warn { background: #fcebeb; color: #a32d2d; }
+
+  .note  { border-left: 3px solid #2a78d6; background: #e6f1fb22; padding: 10px 14px; border-radius: 0 6px 6px 0; font-size: 13px; color: #0c447c; margin-bottom: 1rem; }
+  .warn-box { border-left: 3px solid #eda100; background: #faeeda22; padding: 10px 14px; border-radius: 0 6px 6px 0; font-size: 13px; color: #633806; margin-bottom: 1rem; }
+
+  .formula { background: #f5f4f1; border-radius: 8px; padding: 1rem 1.4rem; font-family: monospace; font-size: 15px; margin: 0.8rem 0; }
+
+  .ref-list { list-style: none; display: flex; flex-direction: column; gap: 10px; margin-top: 0.5rem; }
+  .ref-list li { font-size: 13px; color: #555; padding-left: 1rem; border-left: 2px solid #e0dfd8; }
+
+  .prob-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 6px; margin-top: 1rem; }
+  .prob-cell { background: #f5f4f1; border-radius: 6px; padding: 6px 10px; font-size: 12px; }
+  .prob-cell .lbl { color: #888; }
+  .prob-cell .pct { font-weight: 500; }
+  .prob-cell .bar { height: 4px; border-radius: 2px; background: #2a78d6; margin-top: 4px; opacity: 0.6; }
+
+  input[type=text] { padding: 6px 10px; border: 0.5px solid #e0dfd8; border-radius: 6px; font-size: 13px; width: 100%; max-width: 300px; margin-bottom: 1rem; }
+
+  .insuf-bar { height: 12px; border-radius: 3px; display: inline-block; vertical-align: middle; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>EPJA Territorio Santiago — Demanda Insatisfecha</h1>
+  <p>Santiago · Independencia · Recoleta · Quinta Normal · Estación Central · San Joaquín · Ñuñoa · Providencia &nbsp;|&nbsp; Censo 2024 · MINEDUC Matrícula 2025</p>
+</div>
+
+<nav class="nav">
+  <button class="active" onclick="tab('resumen',this)">Resumen</button>
+  <button onclick="tab('matricula',this)">Matrícula EPJA</button>
+  <button onclick="tab('directorio',this)">Directorio</button>
+  <button onclick="tab('demanda',this)">Demanda potencial</button>
+  <button onclick="tab('insatisfecha',this)">Demanda insatisfecha</button>
+</nav>
+
+<!-- RESUMEN -->
+<div id="resumen" class="content active">
+  <div class="kpi-row">
+    <div class="kpi"><div class="label">Población con rezago 18+</div><div class="value">204.470</div><div class="sub">8 comunas · Censo 2024</div></div>
+    <div class="kpi"><div class="label">Demanda potencial EPJA</div><div class="value">8.760</div><div class="sub">con prob. de retorno</div></div>
+    <div class="kpi"><div class="label">Matrícula EPJA 2025</div><div class="value">6.192</div><div class="sub">5 comunas con cobertura</div></div>
+    <div class="kpi accent"><div class="label">Demanda insatisfecha</div><div class="value">2.568</div><div class="sub">personas sin cobertura</div></div>
+    <div class="kpi"><div class="label">Establecimientos EPJA</div><div class="value">26</div><div class="sub">en el territorio</div></div>
+  </div>
+
+  <div class="card">
+    <h2>Demanda insatisfecha por comuna</h2>
+    <div class="chart-wrap"><canvas id="chartInsuf" role="img" aria-label="Demanda insatisfecha por comuna"></canvas></div>
+  </div>
+
+  <div class="card">
+    <h2>Matrícula EPJA por comuna (2025)</h2>
+    <div class="chart-wrap"><canvas id="chartMat" role="img" aria-label="Matrícula EPJA por comuna"></canvas></div>
+  </div>
+</div>
+
+<!-- MATRÍCULA -->
+<div id="matricula" class="content">
+  <div class="note">Matrícula 2025 filtrada por COD_ENSE2 ∈ {3, 6, 8}: Básica Adultos, Media HC Adultos, Media TP Adultos. Estación Central, San Joaquín y Ñuñoa no registran matrícula EPJA.</div>
+  <div class="card">
+    <h2>Matrícula por comuna y nivel</h2>
+    <div class="chart-wrap" style="height:280px"><canvas id="chartStack" role="img" aria-label="Matrícula apilada por nivel y comuna"></canvas></div>
+  </div>
+  <div class="card">
+    <h2>Detalle por comuna</h2>
+    <table>
+      <thead><tr><th>Comuna</th><th style="text-align:right">Básica adultos</th><th style="text-align:right">Media HC adultos</th><th style="text-align:right">Total</th></tr></thead>
+      <tbody>
+        <tr><td>Santiago</td><td style="text-align:right">780</td><td style="text-align:right">3.208</td><td style="text-align:right"><strong>3.988</strong></td></tr>
+        <tr><td>Recoleta</td><td style="text-align:right">132</td><td style="text-align:right">860</td><td style="text-align:right"><strong>992</strong></td></tr>
+        <tr><td>Providencia</td><td style="text-align:right">2</td><td style="text-align:right">553</td><td style="text-align:right"><strong>555</strong></td></tr>
+        <tr><td>Independencia</td><td style="text-align:right">49</td><td style="text-align:right">330</td><td style="text-align:right"><strong>379</strong></td></tr>
+        <tr><td>Quinta Normal</td><td style="text-align:right">70</td><td style="text-align:right">208</td><td style="text-align:right"><strong>278</strong></td></tr>
+        <tr><td style="color:#aaa">Estación Central</td><td style="text-align:right;color:#aaa">—</td><td style="text-align:right;color:#aaa">—</td><td style="text-align:right;color:#aaa">0</td></tr>
+        <tr><td style="color:#aaa">San Joaquín</td><td style="text-align:right;color:#aaa">—</td><td style="text-align:right;color:#aaa">—</td><td style="text-align:right;color:#aaa">0</td></tr>
+        <tr><td style="color:#aaa">Ñuñoa</td><td style="text-align:right;color:#aaa">—</td><td style="text-align:right;color:#aaa">—</td><td style="text-align:right;color:#aaa">0</td></tr>
+        <tr style="background:#f5f4f1"><td><strong>Total territorio</strong></td><td style="text-align:right"><strong>1.033</strong></td><td style="text-align:right"><strong>5.159</strong></td><td style="text-align:right"><strong>6.192</strong></td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- DIRECTORIO -->
+<div id="directorio" class="content">
+  <div class="card">
+    <h2>Plano de establecimientos EPJA — Territorio Santiago</h2>
+    <div id="mapaEpja" style="height:460px;border-radius:8px;border:1px solid #e0dfd8;margin-bottom:0.5rem"></div>
+    <p style="font-size:12px;color:#aaa">
+      <span style="display:inline-block;width:11px;height:11px;border-radius:50%;background:#2a78d6;margin-right:4px"></span>Municipal &nbsp;
+      <span style="display:inline-block;width:11px;height:11px;border-radius:50%;background:#1baf7a;margin-right:4px"></span>Part. Subvencionado &nbsp;
+      <span style="display:inline-block;width:11px;height:11px;border-radius:50%;background:#eb6834;margin-right:4px"></span>Part. Pagado
+    </p>
+  </div>
+  <div class="card">
+    <h2>26 establecimientos con oferta EPJA — Territorio Santiago</h2>
+    <input type="text" id="filtro" placeholder="Buscar por nombre, comuna o RBD…" oninput="filtrarTabla()">
+    <table id="tablaDir">
+      <thead><tr><th>Establecimiento</th><th>RBD</th><th>Comuna</th><th>Dependencia</th><th>Modalidades EPJA</th></tr></thead>
+      <tbody id="tbodyDir"></tbody>
+    </table>
+    <p style="font-size:12px;color:#aaa;margin-top:0.8rem" id="contadorDir">26 establecimientos</p>
+  </div>
+</div>
+
+<!-- DEMANDA POTENCIAL -->
+<div id="demanda" class="content">
+  <div class="card">
+    <h2>Modelo de demanda potencial EPJA</h2>
+    <p style="font-size:14px;color:#555;margin-bottom:1rem">Se estima sobre la población con rezago escolar (menos de 12 años de educación) y edad ≥ 18 años, aplicando una probabilidad de retorno decreciente con la edad.</p>
+
+    <h3>Función de probabilidad de retorno</h3>
+    <div class="formula">p(edad) = p₀ · e<sup>−λ · (edad − 18)</sup></div>
+    <div class="kpi-row" style="margin-top:0.8rem">
+      <div class="kpi"><div class="label">p₀ — prob. a los 18 años</div><div class="value" style="font-size:20px">22%</div></div>
+      <div class="kpi"><div class="label">λ — tasa de decaimiento</div><div class="value" style="font-size:20px">0.064</div></div>
+      <div class="kpi"><div class="label">Prob. a los 35 años</div><div class="value" style="font-size:20px">7.4%</div></div>
+      <div class="kpi"><div class="label">Prob. a los 65 años</div><div class="value" style="font-size:20px">1.1%</div></div>
+    </div>
+
+    <h3>Curva de probabilidad por edad</h3>
+    <div style="position:relative;height:200px;margin-bottom:0.5rem"><canvas id="chartProb" role="img" aria-label="Curva de decaimiento exponencial de probabilidad de retorno"></canvas></div>
+
+    <h3>Valores de referencia</h3>
+    <div class="prob-grid" id="probGrid"></div>
+
+    <h3 style="margin-top:1.5rem">Fuentes metodológicas</h3>
+    <ul class="ref-list">
+      <li><strong>OCDE Education at a Glance 2023</strong> — tasas de participación de adultos en educación formal por edad. Chile presenta tasas bajas respecto al promedio OCDE, consistente con p₀ ≈ 20–25%.<br><a href="https://www.oecd-ilibrary.org/education/education-at-a-glance_19991487" target="_blank">oecd-ilibrary.org → Education at a Glance</a></li>
+      <li><strong>UNESCO CONFINTEA VII (Marrakech, 2022)</strong> — estadísticas globales de participación EPJA. Para América Latina, tasas de retorno del 5–15% para adultos jóvenes en rezago son el rango típico.<br><a href="https://www.unesco.org/en/confintea/seventh" target="_blank">unesco.org → CONFINTEA VII</a></li>
+      <li><strong>Desjardins, R. (2017). Political Economy of Adult Learning Systems.</strong> Springer. Modela la decisión de retorno como función decreciente de la edad, justificando la forma exponencial del modelo.<br><a href="https://link.springer.com/book/10.1007/978-3-319-22506-5" target="_blank">link.springer.com → Desjardins 2017</a></li>
+      <li><strong>MINEDUC — Anuario Estadístico EPJA</strong> — matrícula real EPJA en Chile por nivel, dependencia y región. Ancla empírica para calibrar p₀ con datos observados del territorio.<br><a href="https://www.mineduc.cl/estadisticas-de-la-educacion/" target="_blank">mineduc.cl → Estadísticas</a></li>
+    </ul>
+    <p style="font-size:12px;color:#aaa;margin-top:1rem;border-left:2px solid #e0dfd8;padding-left:10px">Nota: p₀ = 0.22 y λ = 0.064 son supuestos calibrados. Las referencias sustentan el rango y la forma funcional, no los valores exactos. Se recomienda recalibrar p₀ usando la tasa observada de matrícula / población en rezago del territorio.</p>
+  </div>
+</div>
+
+<!-- DEMANDA INSATISFECHA -->
+<div id="insatisfecha" class="content">
+  <div class="warn-box"><strong>Nota sobre Providencia y Santiago:</strong> Presentan demanda insatisfecha negativa (matrícula supera la demanda estimada), lo que indica que actúan como comunas receptoras de estudiantes EPJA de comunas vecinas. No implica sobre-oferta real, sino atracción territorial.</div>
+
+  <div class="kpi-row">
+    <div class="kpi"><div class="label">Rezago escolar 18+</div><div class="value">204.470</div></div>
+    <div class="kpi"><div class="label">Demanda potencial</div><div class="value">8.760</div></div>
+    <div class="kpi"><div class="label">Matrícula EPJA</div><div class="value">6.192</div></div>
+    <div class="kpi accent"><div class="label">Demanda insatisfecha</div><div class="value">2.568</div></div>
+  </div>
+
+  <div class="card">
+    <h2>Por comuna</h2>
+    <table>
+      <thead><tr><th>Comuna</th><th style="text-align:right">Rezago 18+</th><th style="text-align:right">Demanda potencial</th><th style="text-align:right">Matrícula EPJA</th><th style="text-align:right">Demanda insatisfecha</th><th>Estado</th></tr></thead>
+      <tbody>
+        <tr><td>Estación Central</td><td style="text-align:right">33.248</td><td style="text-align:right">1.519</td><td style="text-align:right">0</td><td class="pos" style="text-align:right">1.519</td><td><span class="badge warn">Sin cobertura</span></td></tr>
+        <tr><td>San Joaquín</td><td style="text-align:right">21.468</td><td style="text-align:right">700</td><td style="text-align:right">0</td><td class="pos" style="text-align:right">700</td><td><span class="badge warn">Sin cobertura</span></td></tr>
+        <tr><td>Quinta Normal</td><td style="text-align:right">24.732</td><td style="text-align:right">936</td><td style="text-align:right">278</td><td class="pos" style="text-align:right">658</td><td><span class="badge warn">Insatisfecha</span></td></tr>
+        <tr><td>Ñuñoa</td><td style="text-align:right">14.874</td><td style="text-align:right">443</td><td style="text-align:right">0</td><td class="pos" style="text-align:right">443</td><td><span class="badge warn">Sin cobertura</span></td></tr>
+        <tr><td>Recoleta</td><td style="text-align:right">37.381</td><td style="text-align:right">1.371</td><td style="text-align:right">992</td><td class="pos" style="text-align:right">379</td><td><span class="badge warn">Insatisfecha</span></td></tr>
+        <tr><td>Independencia</td><td style="text-align:right">17.592</td><td style="text-align:right">801</td><td style="text-align:right">379</td><td class="pos" style="text-align:right">422</td><td><span class="badge warn">Insatisfecha</span></td></tr>
+        <tr><td>Santiago</td><td style="text-align:right">49.684</td><td style="text-align:right">2.811</td><td style="text-align:right">3.988</td><td class="neg" style="text-align:right">−1.177</td><td><span class="badge ok">Receptora</span></td></tr>
+        <tr><td>Providencia</td><td style="text-align:right">5.491</td><td style="text-align:right">180</td><td style="text-align:right">555</td><td class="neg" style="text-align:right">−375</td><td><span class="badge ok">Receptora</span></td></tr>
+        <tr style="background:#f5f4f1"><td><strong>Total territorio</strong></td><td style="text-align:right"><strong>204.470</strong></td><td style="text-align:right"><strong>8.760</strong></td><td style="text-align:right"><strong>6.192</strong></td><td class="pos" style="text-align:right"><strong>2.568</strong></td><td></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>Demanda insatisfecha vs matrícula por comuna</h2>
+    <div class="chart-wrap" style="height:300px"><canvas id="chartDI" role="img" aria-label="Comparativa demanda insatisfecha y matrícula por comuna"></canvas></div>
+  </div>
+</div>
+
+<script>
+function tab(id, btn) {
+  document.querySelectorAll('.content').forEach(d => d.classList.remove('active'));
+  document.querySelectorAll('.nav button').forEach(b => b.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  btn.classList.add('active');
+  if (id === 'directorio' && !window._mapaIniciado) {
+    window._mapaIniciado = true;
+    setTimeout(initMapa, 50);
+  }
+}
+
+// --- Directorio ---
+const dir = [
+  ['LICEO DE APLICACION RECTOR JORGE E SCHNE','8491','SANTIAGO','Municipal','Básica Adultos / Media HC Adultos'],
+  ['LICEO GABRIELA MISTRAL','8497','INDEPENDENCIA','Municipal','Básica Adultos / Media HC Adultos'],
+  ['LICEO DE ADULTOS HERBERT VARGAS WALLIS','8541','SANTIAGO','Municipal','Básica Adultos / Media HC Adultos'],
+  ['ESCUELA DE ADULTOS JORGE ALESSANDRI R.','8553','RECOLETA','Municipal','Básica Adultos / Media HC Adultos'],
+  ['LICEO MUNICIPAL METROPOLITANO DE ADULTOS','8554','SANTIAGO','Municipal','Media HC Adultos'],
+  ['LICEO DR HUMBERTO MATURANA ROMESIN','8571','SANTIAGO','Municipal','Media HC Adultos'],
+  ['COLEGIO POLIVALENTE PLUS ULTRA','8616','INDEPENDENCIA','Particular Subvencionado','Básica Adultos / Media HC Adultos'],
+  ['LICEO JOSE VICTORINO LASTARRIA','8928','PROVIDENCIA','Municipal','Media HC Adultos'],
+  ['LICEO GUILLERMO LABARCA HUBERTSON','9985','QUINTA NORMAL','Municipal','Media HC Adultos'],
+  ['CENTRO EDUCACIONAL JOSE MIGUEL CARRERA','10254','RECOLETA','Municipal','Básica Adultos / Media HC Adultos'],
+  ['COLEGIO PARTICULAR JUAN PABLO','10355','INDEPENDENCIA','Particular Subvencionado','Media HC Adultos'],
+  ['COLEGIO DE ADULTOS PULMAHUE','20310','SANTIAGO','Particular Subvencionado','Media HC Adultos'],
+  ['COLEGIO EDUCAR ADULTOS RECOLETA','20510','RECOLETA','Particular Subvencionado','Media HC Adultos'],
+  ['LICEO ADULTOS PART. LAS AMERICAS MODERNAS','24763','INDEPENDENCIA','Particular Subvencionado','Media HC Adultos'],
+  ['COLEGIO INST. TABANCURA SEDE LONDRES','24840','SANTIAGO','Particular Pagado','Media HC Adultos'],
+  ['INSTITUTO TABANCURA DE PROVIDENCIA','24896','PROVIDENCIA','Particular Pagado','Media HC Adultos'],
+  ['LICEO DE ADULTOS PART. FERMIN VIVACETA','24911','SANTIAGO','Particular Subvencionado','Media HC Adultos'],
+  ['COLEGIO DE ADULTOS CASA DE ESTUDIOS FUTURO','25054','PROVIDENCIA','Particular Pagado','Media HC Adultos'],
+  ['COLEGIO DE ADULTOS GLADYS LAZO','25237','SANTIAGO','Particular Subvencionado','Media HC Adultos'],
+  ['COLEGIO CTRO. INTEG ADULTOS ALTAZOL','25463','SANTIAGO','Particular Subvencionado','Media HC Adultos'],
+  ['COLEGIO PART. ADULTOS INSTITUTO ICEL','25818','SANTIAGO','Particular Subvencionado','Media HC Adultos'],
+  ['COLEGIO DE ADULTOS INSTITUTO NUEVO BILBAO','26030','PROVIDENCIA','Particular Pagado','Media HC Adultos'],
+  ['COLEGIO DE ADULTOS ESCUELA DEL CARIÑO','26531','QUINTA NORMAL','Particular Subvencionado','Media HC Adultos'],
+  ['COLEGIO DE ADULTOS ALTAZOL DE SANTIAGO','31039','SANTIAGO','Particular Subvencionado','Media HC Adultos'],
+  ['CENTRO EDUCACIONAL INTEGRAL ADULTOS ACUARIO','31167','SANTIAGO','Particular Subvencionado','Básica Adultos / Media HC Adultos'],
+  ['LICEO DE ADULTOS INSIEME','31376','SANTIAGO','Particular Subvencionado','Media HC Adultos'],
+];
+const bc = { 'Municipal':'mun', 'Particular Subvencionado':'sub', 'Particular Pagado':'pag' };
+function renderDir(data) {
+  document.getElementById('tbodyDir').innerHTML = data.map(r =>
+    `<tr><td>${r[0]}</td><td>${r[1]}</td><td>${r[2]}</td><td><span class="badge ${bc[r[3]]||''}">${r[3]}</span></td><td style="font-size:12px;color:#555">${r[4]}</td></tr>`
+  ).join('');
+  document.getElementById('contadorDir').textContent = data.length + ' establecimientos';
+}
+renderDir(dir);
+function filtrarTabla() {
+  const q = document.getElementById('filtro').value.toLowerCase();
+  renderDir(dir.filter(r => r.join(' ').toLowerCase().includes(q)));
+}
+
+// --- Probabilidades ---
+const p0 = 0.22, lam = 0.064;
+const edRef = [18,20,25,30,35,40,45,50,55,60,65,70,75,80,85];
+const pg = document.getElementById('probGrid');
+edRef.forEach(e => {
+  const p = p0 * Math.exp(-lam * (e - 18));
+  const w = Math.round((p / p0) * 100);
+  pg.innerHTML += `<div class="prob-cell"><span class="lbl">Edad ${e}</span><br><span class="pct">${(p*100).toFixed(1)}%</span><div class="bar" style="width:${w}%"></div></div>`;
+});
+
+// --- Gráficos ---
+const comunas8 = ['E. Central','San Joaquín','Quinta Normal','Ñuñoa','Recoleta','Independencia','Santiago','Providencia'];
+const dInsuf   = [1519, 700, 658, 443, 379, 422, -1177, -375];
+const dPot     = [1519, 700, 936, 443, 1371, 801, 2811, 180];
+const dMat     = [0,    0,   278, 0,   992,  379, 3988,  555];
+
+// Colores demanda insatisfecha
+const colInsuf = dInsuf.map(v => v > 0 ? '#e34948' : '#1baf7a');
+
+new Chart(document.getElementById('chartInsuf'), {
+  type: 'bar',
+  data: {
+    labels: comunas8,
+    datasets: [{ data: dInsuf, backgroundColor: colInsuf, borderRadius: 4, barThickness: 28 }]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => c.parsed.y.toLocaleString('es-CL') + ' personas' } } },
+    scales: {
+      x: { grid: { display: false }, ticks: { font: { size: 11 } } },
+      y: { grid: { color: '#e0dfd8' }, ticks: { font: { size: 11 } } }
+    }
+  }
+});
+
+new Chart(document.getElementById('chartMat'), {
+  type: 'bar',
+  data: {
+    labels: ['Santiago','Recoleta','Providencia','Independencia','Quinta Normal'],
+    datasets: [{ data: [3988,992,555,379,278], backgroundColor: '#2a78d6', borderRadius: 4, barThickness: 32 }]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    plugins: { legend: { display: false } },
+    scales: { x: { grid: { display: false } }, y: { grid: { color: '#e0dfd8' } } }
+  }
+});
+
+new Chart(document.getElementById('chartStack'), {
+  type: 'bar',
+  data: {
+    labels: ['Santiago','Recoleta','Providencia','Independencia','Quinta Normal'],
+    datasets: [
+      { label: 'Básica adultos', data: [780,132,2,49,70], backgroundColor: '#2a78d6', borderRadius: 4 },
+      { label: 'Media HC adultos', data: [3208,860,553,330,208], backgroundColor: '#1baf7a', borderRadius: 4 }
+    ]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    plugins: { legend: { display: false } },
+    scales: { x: { stacked: true, grid: { display: false } }, y: { stacked: true, grid: { color: '#e0dfd8' } } }
+  }
+});
+
+// Curva probabilidad
+const edAll = Array.from({length:68}, (_,i) => i+18);
+new Chart(document.getElementById('chartProb'), {
+  type: 'line',
+  data: {
+    labels: edAll,
+    datasets: [{ data: edAll.map(e => +(p0*Math.exp(-lam*(e-18))*100).toFixed(3)),
+      borderColor: '#2a78d6', borderWidth: 2, fill: true,
+      backgroundColor: 'rgba(42,120,214,0.08)', pointRadius: 0, tension: 0.3 }]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => c.parsed.y.toFixed(2)+'%' } } },
+    scales: {
+      x: { grid: { color: '#e0dfd8' }, ticks: { maxTicksLimit: 10, font: { size: 11 } } },
+      y: { grid: { color: '#e0dfd8' }, ticks: { callback: v => v+'%', font: { size: 11 } } }
+    }
+  }
+});
+
+// Demanda insatisfecha comparativa
+new Chart(document.getElementById('chartDI'), {
+  type: 'bar',
+  data: {
+    labels: comunas8,
+    datasets: [
+      { label: 'Demanda potencial', data: dPot, backgroundColor: '#b5d4f4', borderRadius: 4 },
+      { label: 'Matrícula EPJA', data: dMat, backgroundColor: '#2a78d6', borderRadius: 4 }
+    ]
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    plugins: { legend: { display: false } },
+    scales: {
+      x: { grid: { display: false }, ticks: { font: { size: 11 } } },
+      y: { grid: { color: '#e0dfd8' }, ticks: { font: { size: 11 } } }
+    }
+  }
+});
+
+// --- Mapa interactivo Directorio ---
+const mapaData = [
+  {rbd:'8491', nom:'Liceo de Aplicación Rector Jorge E. Schneider', com:'Santiago', dep:'Municipal', mod:'Básica Adultos / Media HC Adultos', lat:-33.44094, lng:-70.66272},
+  {rbd:'8497', nom:'Liceo Gabriela Mistral', com:'Independencia', dep:'Municipal', mod:'Básica Adultos / Media HC Adultos', lat:-33.41605, lng:-70.65676},
+  {rbd:'8541', nom:'Liceo de Adultos Herbert Vargas Wallis', com:'Santiago', dep:'Municipal', mod:'Básica Adultos / Media HC Adultos', lat:-33.47326, lng:-70.65968},
+  {rbd:'8553', nom:'Escuela de Adultos Jorge Alessandri R.', com:'Recoleta', dep:'Municipal', mod:'Básica Adultos / Media HC Adultos', lat:-33.42455, lng:-70.64515},
+  {rbd:'8554', nom:'Liceo Municipal Metropolitano de Adultos', com:'Santiago', dep:'Municipal', mod:'Media HC Adultos', lat:-33.46934, lng:-70.64488},
+  {rbd:'8571', nom:'Liceo Dr. Humberto Maturana Romesín', com:'Santiago', dep:'Municipal', mod:'Media HC Adultos', lat:-33.46010, lng:-70.64492},
+  {rbd:'8616', nom:'Colegio Polivalente Plus Ultra', com:'Independencia', dep:'Particular Subvencionado', mod:'Básica Adultos / Media HC Adultos', lat:-33.42078, lng:-70.65681},
+  {rbd:'8928', nom:'Liceo José Victorino Lastarria', com:'Providencia', dep:'Municipal', mod:'Media HC Adultos', lat:-33.43030, lng:-70.62161},
+  {rbd:'9985', nom:'Liceo Guillermo Labarca Hubertson', com:'Quinta Normal', dep:'Municipal', mod:'Media HC Adultos', lat:-33.44125, lng:-70.69896},
+  {rbd:'10254', nom:'Centro Educacional José Miguel Carrera', com:'Recoleta', dep:'Municipal', mod:'Básica Adultos / Media HC Adultos', lat:-33.38347, lng:-70.65714},
+  {rbd:'10355', nom:'Colegio Particular Juan Pablo', com:'Independencia', dep:'Particular Subvencionado', mod:'Media HC Adultos', lat:-33.40174, lng:-70.67643},
+  {rbd:'20310', nom:'Colegio de Adultos Pulmahue', com:'Santiago', dep:'Particular Subvencionado', mod:'Media HC Adultos', lat:-33.43894, lng:-70.65619},
+  {rbd:'20510', nom:'Colegio Educar Adultos Recoleta', com:'Recoleta', dep:'Particular Subvencionado', mod:'Media HC Adultos', lat:-33.40196, lng:-70.65715},
+  {rbd:'24763', nom:'Liceo Adultos Las Américas Modernas', com:'Independencia', dep:'Particular Subvencionado', mod:'Media HC Adultos', lat:-33.40842, lng:-70.66639},
+  {rbd:'24840', nom:'Instituto Tabancura Sede Londres', com:'Santiago', dep:'Particular Pagado', mod:'Media HC Adultos', lat:-33.44494, lng:-70.64760},
+  {rbd:'24896', nom:'Instituto Tabancura de Providencia', com:'Providencia', dep:'Particular Pagado', mod:'Media HC Adultos', lat:-33.43800, lng:-70.60701},
+  {rbd:'24911', nom:'Liceo de Adultos Fermín Vivaceta', com:'Santiago', dep:'Particular Subvencionado', mod:'Media HC Adultos', lat:-33.43389, lng:-70.66119},
+  {rbd:'25054', nom:'Colegio de Adultos Casa de Estudios Futuro', com:'Providencia', dep:'Particular Pagado', mod:'Media HC Adultos', lat:-33.43418, lng:-70.62258},
+  {rbd:'25237', nom:'Colegio de Adultos Gladys Lazo', com:'Santiago', dep:'Particular Subvencionado', mod:'Media HC Adultos', lat:-33.44678, lng:-70.64317},
+  {rbd:'25463', nom:'Colegio Centro Integrado Adultos Altazol', com:'Santiago', dep:'Particular Subvencionado', mod:'Media HC Adultos', lat:-33.45152, lng:-70.65933},
+  {rbd:'25818', nom:'Colegio de Adultos Instituto ICEL', com:'Santiago', dep:'Particular Subvencionado', mod:'Media HC Adultos', lat:-33.44226, lng:-70.66409},
+  {rbd:'26030', nom:'Colegio de Adultos Instituto Nuevo Bilbao', com:'Providencia', dep:'Particular Pagado', mod:'Media HC Adultos', lat:-33.43912, lng:-70.62688},
+  {rbd:'26531', nom:'Colegio de Adultos Escuela del Cariño', com:'Quinta Normal', dep:'Particular Subvencionado', mod:'Media HC Adultos', lat:-33.41116, lng:-70.70496},
+  {rbd:'31039', nom:'Colegio de Adultos Altazol Santiago', com:'Santiago', dep:'Particular Subvencionado', mod:'Media HC Adultos', lat:-33.45087, lng:-70.66543},
+  {rbd:'31167', nom:'Centro Educacional Integral de Adultos Acuario', com:'Santiago', dep:'Particular Subvencionado', mod:'Básica Adultos / Media HC Adultos', lat:-33.45581, lng:-70.66192},
+  {rbd:'31376', nom:'Liceo de Adultos Insieme', com:'Santiago', dep:'Particular Subvencionado', mod:'Media HC Adultos', lat:-33.44468, lng:-70.65878},
+];
+
+const depColor = { 'Municipal':'#2a78d6', 'Particular Subvencionado':'#1baf7a', 'Particular Pagado':'#eb6834' };
+
+function initMapa() {
+  const map = L.map('mapaEpja').setView([-33.448, -70.655], 13);
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+    attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors © <a href="https://carto.com/attributions">CARTO</a>',
+    subdomains: 'abcd',
+    maxZoom: 19
+  }).addTo(map);
+
+  mapaData.forEach(e => {
+    const color = depColor[e.dep] || '#888';
+    const marker = L.circleMarker([e.lat, e.lng], {
+      radius: 8, color: '#fff', weight: 1.5,
+      fillColor: color, fillOpacity: 0.9
+    });
+    marker.bindPopup(
+      `<b style="font-size:13px">${e.nom}</b><br>` +
+      `<span style="color:#555;font-size:12px">RBD: ${e.rbd}</span><br>` +
+      `<span style="font-size:12px"><b>Comuna:</b> ${e.com}</span><br>` +
+      `<span style="font-size:12px"><b>Dependencia:</b> <span style="color:${color}">${e.dep}</span></span><br>` +
+      `<span style="font-size:12px"><b>Modalidades:</b> ${e.mod}</span>`
+    , {maxWidth: 260});
+    marker.bindTooltip(e.nom, {direction:'top', offset:[0,-8]});
+    marker.addTo(map);
+  });
+}
+
+</script>
+</body>
+</html>
